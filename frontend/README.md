@@ -29,7 +29,7 @@ A beautiful, multi-tenant SaaS survey platform built with React, Supabase, and T
 ## Project Structure
 
 ```
-nexora-pulse/
+frontend/
 ├── netlify/functions/         # Serverless API functions
 │   ├── register-tenant.js     # New org registration
 │   └── invite-user.js         # User invitation
