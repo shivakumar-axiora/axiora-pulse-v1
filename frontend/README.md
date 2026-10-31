@@ -86,8 +86,8 @@ nexora-pulse/
 
 ```bash
 # Clone the repo
-git clone https://github.com/axiora-core-tech/nexora-pulse.git
-cd nexora-pulse
+git clone https://github.com/shivakumar-axiora/axiora-pulse-v1.git
+cd axiora-pulse-v1/frontend
 
 # Install dependencies
 npm install

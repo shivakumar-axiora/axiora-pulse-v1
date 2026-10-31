@@ -1,7 +1,7 @@
 # AWS ECS Deployment Setup — AxioraPulse
 
 Complete one-time AWS setup for deploying frontend and backend to ECS Fargate.  
-**Region:** `ap-south-1` (Mumbai) | **Account:** `217757579310`
+**Region:** `ap-south-1` (Mumbai) | **Account:** `YOUR_AWS_ACCOUNT_ID`
 
 ---
 
@@ -98,8 +98,8 @@ The backend repo already exists. Create the frontend one.
 6. **Create repository**
 
 Your two repos are now:
-- `217757579310.dkr.ecr.ap-south-1.amazonaws.com/axiora/pulse-fastapi` ✅
-- `217757579310.dkr.ecr.ap-south-1.amazonaws.com/axiora/pulse-frontend` ✅
+- `YOUR_AWS_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/axiora/pulse-fastapi` ✅
+- `YOUR_AWS_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/axiora/pulse-frontend` ✅
 
 ---
 
@@ -310,14 +310,14 @@ Run from the repository root:
 # Authenticate Docker to ECR
 aws ecr get-login-password --region ap-south-1 | \
   docker login --username AWS --password-stdin \
-  217757579310.dkr.ecr.ap-south-1.amazonaws.com
+  YOUR_AWS_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com
 
 # ── Backend ──────────────────────────────────────────────────────────────────
 docker build -f backend/Dockerfile.prod \
-  -t 217757579310.dkr.ecr.ap-south-1.amazonaws.com/axiora/pulse-fastapi:latest \
+  -t YOUR_AWS_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/axiora/pulse-fastapi:latest \
   ./backend
 
-docker push 217757579310.dkr.ecr.ap-south-1.amazonaws.com/axiora/pulse-fastapi:latest
+docker push YOUR_AWS_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/axiora/pulse-fastapi:latest
 
 # ── Frontend ─────────────────────────────────────────────────────────────────
 # Replace the values below with your actual production values
@@ -325,10 +325,10 @@ docker build \
   --build-arg VITE_API_BASE_URL=https://api.yourdomain.com \
   --build-arg VITE_SUPABASE_URL=https://xxxx.supabase.co \
   --build-arg VITE_SUPABASE_ANON_KEY=eyJ... \
-  -t 217757579310.dkr.ecr.ap-south-1.amazonaws.com/axiora/pulse-frontend:latest \
+  -t YOUR_AWS_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/axiora/pulse-frontend:latest \
   ./frontend
 
-docker push 217757579310.dkr.ecr.ap-south-1.amazonaws.com/axiora/pulse-frontend:latest
+docker push YOUR_AWS_ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/axiora/pulse-frontend:latest
 ```
 
 ---
