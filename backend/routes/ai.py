@@ -10,6 +10,7 @@ from typing import List
 from fastapi import Request
 from fastapi import APIRouter, Depends, HTTPException
 import google.generativeai as genai
+from mistralai.client import Mistral
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 from core.rate_limiter import limiter
@@ -133,70 +134,79 @@ async def generate_insights(
     body: AIInsightsRequest,
     current_user: UserProfile = Depends(get_current_user)
 ):
-    print(f"[AI] Received Gemini request for survey: {body.surveyTitle}")
+    ai_provider = os.getenv("AI_PROVIDER", "gemini").lower()
+    print(f"[AI] Received AI insights request for survey: {body.surveyTitle} | Provider: {ai_provider}")
     
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=500, 
-            detail="Google API key not configured on server. Please set GOOGLE_API_KEY in .env"
-        )
+    # Construct the prompt
+    prompt = f"""
+    Analyze the following survey data and provide structured insights.
+    
+    Survey Title: {body.surveyTitle}
+    
+    Overall Stats:
+    - Total Responses: {body.responses.get('total')}
+    - Completion Rate: {body.responses.get('completionRate')}%
+    - Abandon Rate: {body.responses.get('abandonRate')}%
+    - Avg Time: {body.responses.get('avgTimeMin')} minutes
+    - NPS: {json.dumps(body.responses.get('nps'))}
+    
+    Question Summaries:
+    {json.dumps(body.questionSummaries, indent=2)}
+    
+    Return a JSON object with this structure:
+    {{
+      "executiveSummary": "string",
+      "npsAnalysis": "string (optional)",
+      "insights": [
+        {{ "type": "positive|warning|info|action", "title": "string", "detail": "string", "metric": "string (optional)" }}
+      ],
+      "topStrengths": ["string"],
+      "improvementAreas": ["string"],
+      "recommendedActions": [
+        {{ "priority": "high|medium|low", "action": "string", "impact": "string" }}
+      ]
+    }}
+    """
 
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-flash-latest")
-
-        # Construct the prompt
-        prompt = f"""
-        Analyze the following survey data and provide structured insights.
-        
-        Survey Title: {body.surveyTitle}
-        
-        Overall Stats:
-        - Total Responses: {body.responses.get('total')}
-        - Completion Rate: {body.responses.get('completionRate')}%
-        - Abandon Rate: {body.responses.get('abandonRate')}%
-        - Avg Time: {body.responses.get('avgTimeMin')} minutes
-        - NPS: {json.dumps(body.responses.get('nps'))}
-        
-        Question Summaries:
-        {json.dumps(body.questionSummaries, indent=2)}
-        
-        Return a JSON object with this structure:
-        {{
-          "executiveSummary": "string",
-          "npsAnalysis": "string (optional)",
-          "insights": [
-            {{ "type": "positive|warning|info|action", "title": "string", "detail": "string", "metric": "string (optional)" }}
-          ],
-          "topStrengths": ["string"],
-          "improvementAreas": ["string"],
-          "recommendedActions": [
-            {{ "priority": "high|medium|low", "action": "string", "impact": "string" }}
-          ]
-        }}
-        """
-
-        response = await run_in_threadpool(
-            model.generate_content,
-            prompt,
-            generation_config=genai.GenerationConfig(
-                response_mime_type="application/json",
+    if ai_provider == "mistral":
+        api_key = os.getenv("MISTRAL_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Mistral API key not configured on server.")
+        try:
+            client = Mistral(api_key=api_key)
+            response = await run_in_threadpool(
+                client.chat.complete,
+                model="mistral-large-latest",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
             )
-        )
-
-        result_json = json.loads(response.text)
-        return AIInsightsResponse(**result_json)
-
-    except ValidationError as ve:
-        print(f"[AI] Gemini Validation Error: {ve}")
-        raise HTTPException(status_code=500, detail="Gemini returned an invalid data structure")
-    except Exception as e:
-        print(f"[AI] Gemini Error: {e}")
-        # Check for quota errors in string
-        if "quota" in str(e).lower() or "429" in str(e):
-             raise HTTPException(status_code=429, detail="Google API quota exceeded or rate limited.")
-        raise HTTPException(status_code=500, detail=f"Failed to generate Gemini insights: {str(e)}")
+            result_json = json.loads(response.choices[0].message.content)
+            return AIInsightsResponse(**result_json)
+        except Exception as e:
+            print(f"[AI] Mistral Error: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to generate Mistral insights: {str(e)}")
+    else:
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Google API key not configured on server.")
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-flash-latest")
+            response = await run_in_threadpool(
+                model.generate_content,
+                prompt,
+                generation_config=genai.GenerationConfig(response_mime_type="application/json")
+            )
+            result_json = json.loads(response.text)
+            return AIInsightsResponse(**result_json)
+        except ValidationError as ve:
+            print(f"[AI] Gemini Validation Error: {ve}")
+            raise HTTPException(status_code=500, detail="Gemini returned an invalid data structure")
+        except Exception as e:
+            print(f"[AI] Gemini Error: {e}")
+            if "quota" in str(e).lower() or "429" in str(e):
+                 raise HTTPException(status_code=429, detail="Google API quota exceeded or rate limited.")
+            raise HTTPException(status_code=500, detail=f"Failed to generate Gemini insights: {str(e)}")
 
 
 @router.post("/suggestions")
@@ -206,61 +216,70 @@ async def generate_suggestions(
     body: AISuggestionsRequest,
     current_user: UserProfile = Depends(get_current_user)
 ):
-    print(f"[AI] Received Gemini suggestions request for survey: {body.surveyTitle}")
+    ai_provider = os.getenv("AI_PROVIDER", "gemini").lower()
+    print(f"[AI] Received AI suggestions request for survey: {body.surveyTitle} | Provider: {ai_provider}")
+    intent_source = f"User's specific request for questions: {body.aiContext}" if body.aiContext else f"Survey Title: {body.surveyTitle}\n        Survey Description: {body.surveyDescription}"
+    prompt = f"""
+    Based on the following context, suggest 3-5 relevant follow-up questions for a survey.
     
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=500, 
-            detail="Google API key not configured on server"
-        )
-
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-flash-latest")
-
-        intent_source = f"User's specific request for questions: {body.aiContext}" if body.aiContext else f"Survey Title: {body.surveyTitle}\n        Survey Description: {body.surveyDescription}"
-        prompt = f"""
-        Based on the following context, suggest 3-5 relevant follow-up questions for a survey.
-        
-        Context:
-        {intent_source}
-        
-        Existing Questions:
-        {json.dumps(body.existingQuestions, indent=2)}
-        
-        Return a JSON object with this structure:
-        {{
-          "suggestions": [
-            {{ 
-              "text": "The question text", 
-              "type": "short_text|long_text|single_choice|multiple_choice|rating|scale|yes_no", 
-              "options": [{{ "label": "string", "value": "string" }}] (only for choice types),
-              "rationale": "Briefly why this question is useful"
-            }}
-          ]
+    Context:
+    {intent_source}
+    
+    Existing Questions:
+    {json.dumps(body.existingQuestions, indent=2)}
+    
+    Return a JSON object with this structure:
+    {{
+      "suggestions": [
+        {{ 
+          "text": "The question text", 
+          "type": "short_text|long_text|single_choice|multiple_choice|rating|scale|yes_no", 
+          "options": [{{ "label": "string", "value": "string" }}] (only for choice types),
+          "rationale": "Briefly why this question is useful"
         }}
-        """
+      ]
+    }}
+    """
 
-        response = await run_in_threadpool(
-            model.generate_content,
-            prompt,
-            generation_config=genai.GenerationConfig(
-                response_mime_type="application/json",
+    if ai_provider == "mistral":
+        api_key = os.getenv("MISTRAL_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Mistral API key not configured on server.")
+        try:
+            client = Mistral(api_key=api_key)
+            response = await run_in_threadpool(
+                client.chat.complete,
+                model="mistral-large-latest",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
             )
-        )
-
-        result_json = json.loads(response.text)
-        return AISuggestionsResponse(**result_json)
-
-    except ValidationError as ve:
-        print(f"[AI] Gemini Validation Error: {ve}")
-        raise HTTPException(status_code=500, detail="Gemini returned invalid suggestion structure")
-    except Exception as e:
-        print(f"[AI] Gemini Error: {e}")
-        if "quota" in str(e).lower() or "429" in str(e):
-             raise HTTPException(status_code=429, detail="Google API quota exceeded or rate limited.")
-        raise HTTPException(status_code=500, detail=f"Failed to generate Gemini suggestions: {str(e)}")
+            result_json = json.loads(response.choices[0].message.content)
+            return AISuggestionsResponse(**result_json)
+        except Exception as e:
+            print(f"[AI] Mistral Error: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to generate Mistral suggestions: {str(e)}")
+    else:
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Google API key not configured on server")
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-flash-latest")
+            response = await run_in_threadpool(
+                model.generate_content,
+                prompt,
+                generation_config=genai.GenerationConfig(response_mime_type="application/json")
+            )
+            result_json = json.loads(response.text)
+            return AISuggestionsResponse(**result_json)
+        except ValidationError as ve:
+            print(f"[AI] Gemini Validation Error: {ve}")
+            raise HTTPException(status_code=500, detail="Gemini returned invalid suggestion structure")
+        except Exception as e:
+            print(f"[AI] Gemini Error: {e}")
+            if "quota" in str(e).lower() or "429" in str(e):
+                 raise HTTPException(status_code=429, detail="Google API quota exceeded or rate limited.")
+            raise HTTPException(status_code=500, detail=f"Failed to generate Gemini suggestions: {str(e)}")
 
 @router.post("/generate")
 @limiter.limit("5/minute")
@@ -269,60 +288,69 @@ async def generate_survey_full(
     body: AIGenerateRequest,
     current_user: UserProfile = Depends(get_current_user)
 ):
-    print(f"[AI] Received full survey generation request")
+    ai_provider = os.getenv("AI_PROVIDER", "gemini").lower()
+    print(f"[AI] Received full survey generation request | Provider: {ai_provider}")
+    prompt = f"""
+    You are an expert survey designer. Create a highly professional and relevant survey based on this user request:
+    "{body.aiContext}"
     
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=500, 
-            detail="Google API key not configured on server"
-        )
-
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-flash-latest")
-
-        prompt = f"""
-        You are an expert survey designer. Create a highly professional and relevant survey based on this user request:
-        "{body.aiContext}"
-        
-        Provide the following:
-        1. A concise, professional survey title.
-        2. A short description of the survey's purpose.
-        3. A welcoming message to display to respondents.
-        4. 8-12 highly relevant questions.
-        
-        Return a JSON object with this exact structure:
+    Provide the following:
+    1. A concise, professional survey title.
+    2. A short description of the survey's purpose.
+    3. A welcoming message to display to respondents.
+    4. 8-12 highly relevant questions.
+    
+    Return a JSON object with this exact structure:
+    {{
+      "title": "string",
+      "description": "string",
+      "welcome_message": "string",
+      "questions": [
         {{
-          "title": "string",
-          "description": "string",
-          "welcome_message": "string",
-          "questions": [
-            {{
-              "text": "The question text",
-              "type": "short_text|long_text|single_choice|multiple_choice|rating|scale|yes_no",
-              "options": [{{ "label": "string", "value": "string" }}] (required for single_choice/multiple_choice, omit otherwise)
-            }}
-          ]
+          "text": "The question text",
+          "type": "short_text|long_text|single_choice|multiple_choice|rating|scale|yes_no",
+          "options": [{{ "label": "string", "value": "string" }}] (required for single_choice/multiple_choice, omit otherwise)
         }}
-        """
+      ]
+    }}
+    """
 
-        response = await run_in_threadpool(
-            model.generate_content,
-            prompt,
-            generation_config=genai.GenerationConfig(
-                response_mime_type="application/json",
+    if ai_provider == "mistral":
+        api_key = os.getenv("MISTRAL_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Mistral API key not configured on server.")
+        try:
+            client = Mistral(api_key=api_key)
+            response = await run_in_threadpool(
+                client.chat.complete,
+                model="mistral-large-latest",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
             )
-        )
-
-        result_json = json.loads(response.text)
-        return AIGenerateResponse(**result_json)
-
-    except ValidationError as ve:
-        print(f"[AI] Gemini Validation Error: {ve}")
-        raise HTTPException(status_code=500, detail="Gemini returned invalid survey structure")
-    except Exception as e:
-        print(f"[AI] Gemini Error: {e}")
-        if "quota" in str(e).lower() or "429" in str(e):
-             raise HTTPException(status_code=429, detail="Google API quota exceeded or rate limited.")
-        raise HTTPException(status_code=500, detail=f"Failed to generate full survey: {str(e)}")
+            result_json = json.loads(response.choices[0].message.content)
+            return AIGenerateResponse(**result_json)
+        except Exception as e:
+            print(f"[AI] Mistral Error: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to generate full survey via Mistral: {str(e)}")
+    else:
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Google API key not configured on server")
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-flash-latest")
+            response = await run_in_threadpool(
+                model.generate_content,
+                prompt,
+                generation_config=genai.GenerationConfig(response_mime_type="application/json")
+            )
+            result_json = json.loads(response.text)
+            return AIGenerateResponse(**result_json)
+        except ValidationError as ve:
+            print(f"[AI] Gemini Validation Error: {ve}")
+            raise HTTPException(status_code=500, detail="Gemini returned invalid survey structure")
+        except Exception as e:
+            print(f"[AI] Gemini Error: {e}")
+            if "quota" in str(e).lower() or "429" in str(e):
+                 raise HTTPException(status_code=429, detail="Google API quota exceeded or rate limited.")
+            raise HTTPException(status_code=500, detail=f"Failed to generate full survey: {str(e)}")

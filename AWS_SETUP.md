@@ -10,7 +10,7 @@ Complete one-time AWS setup for deploying frontend and backend to ECS Fargate.
 ```
 [ ] 1.  IAM — ecsTaskExecutionRole
 [ ] 2.  IAM — ecsTaskRole
-[ ] 3.  SSM — 9 secret parameters
+[ ] 3.  SSM — 10 secret parameters
 [ ] 4.  ECR — axiora/pulse-frontend repository
 [ ] 5.  CloudWatch — /ecs/pulse-backend log group
 [ ] 6.  CloudWatch — /ecs/pulse-frontend log group
@@ -75,13 +75,14 @@ For every parameter below:
 | `/axiorapulse/production/DATABASE_URL` | `postgresql+psycopg2://postgres:[password]@[supabase-host]:5432/postgres` |
 | `/axiorapulse/production/OPENAI_API_KEY` | `sk-...` |
 | `/axiorapulse/production/GOOGLE_API_KEY` | Google Gemini API key |
+| `/axiorapulse/production/MISTRAL_API_KEY` | Mistral AI API key |
 | `/axiorapulse/production/RESEND_API_KEY` | From resend.com |
 | `/axiorapulse/production/EMAIL_FROM` | `Axiora Pulse <noreply@yourdomain.com>` |
 | `/axiorapulse/production/FRONTEND_URL` | `https://app.yourdomain.com` |
 | `/axiorapulse/production/EMAIL_USER` | SMTP email address |
 | `/axiorapulse/production/EMAIL_PASS` | SMTP app password |
 
-> Create all 9. The task definition references every one of them.
+> Create all 10. The task definition references every one of them.
 
 ---
 
